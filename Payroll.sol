@@ -41,25 +41,106 @@ contract Payroll {
         lastPaymentTime = block.timestamp; // Set the initial payment time to now
     }
 
-    // TODO: Add functionality to add a new employee with a salary and check if the employee already exists
+    // Add a new employee with a salary and check if the employee already exists
+    function addEmployee(address worker, uint256 salary) external onlyCompanyOwner {
+        require(worker != address(0), "Invalid employee address");
+        require(!isEmployee[worker], "Employee already exists");
+        require(salary > 0, "Salary must be greater than zero");
 
-    // TODO: Add functionality to deactivate an employee (e.g., termination or leave)
+        employees.push(Employee({
+            id: totalEmployees,
+            worker: worker,
+            salary: salary,
+            timestamp: block.timestamp,
+            isActive: true
+        }));
 
-    // TODO: Add functionality to check if the payment interval has elapsed since the last payment
+        isEmployee[worker] = true;
+        totalEmployees++;
+        totalSalary += salary;
 
-    // TODO: Add functionality to process batch payments securely and prevent reentrancy attacks
+        emit EmployeeAdded(totalEmployees - 1, worker, salary);
+    }
 
-    // TODO: Add functionality to allow the company owner to fund the company balance and track it
+    // Deactivate an employee (e.g., termination or leave)
+    function deactivateEmployee(address worker) external onlyCompanyOwner {
+        uint256 index = getEmployeeIndex(worker);
+        require(employees[index].isActive, "Employee is already inactive");
+        
+        employees[index].isActive = false;
+        totalSalary -= employees[index].salary;
 
-    // TODO: Add functionality to allow the company owner to update the payment interval dynamically
+    }
+
+    // Check if the payment interval has elapsed since the last payment
+    function isPaymentIntervalElapsed() public view returns (bool) {
+        return block.timestamp >= lastPaymentTime + paymentInterval;
+    }
+
+    // Process batch payments securely and prevent reentrancy attacks
+    function processPayments() external onlyCompanyOwner {
+        require(isPaymentIntervalElapsed(), "Payment interval has not elapsed");
+        require(companyBal >= totalSalary, "Insufficient company balance");
+
+        for (uint256 i = 0; i < employees.length; i++) {
+            Employee storage employee = employees[i];
+            if (employee.isActive) {
+                sendPayment(employee.worker, employee.salary);
+                lastPaid[employee.worker] = block.timestamp;
+                emit Paid(employee.id, companyAcc, employee.salary, block.timestamp);
+            }
+        }
+
+        lastPaymentTime = block.timestamp;
+        
+    }
+
+    // Allow the company owner to fund the company balance and track it
+    function fundCompany() external payable onlyCompanyOwner {
+        require(msg.value > 0, "Funding amount must be greater than zero");
+        companyBal += msg.value;
+    }
+
+    // Allow the company owner to update the payment interval dynamically
+    function updatePaymentInterval(uint256 newInterval) external onlyCompanyOwner {
+        require(newInterval > 0, "Payment interval must be greater than zero");
+        paymentInterval = newInterval;
+    }
+
+    // Internal function to securely send money to an employee, preventing reentrancy attacks
+    function sendPayment(address employee, uint256 amount) internal {
+        require(companyBal >= amount, "Insufficient funds to pay employee");
+        companyBal -= amount;
+
+        // Send the payment
+        address payable receipient = payable(employee);
+        receipient.transfer(amount);
+        // (bool success, ) = employee.call{value: amount}("");
+        // require(success, "Payment transfer failed");
+    }
+
+    // Helper function to get an employee's index by their address
+    function getEmployeeIndex(address worker) internal view returns (uint256) {
+        for (uint256 i = 0; i < employees.length; i++) {
+            if (employees[i].worker == worker) {
+                return i;
+            }
+        }
+        revert("Employee not found");
+    }
+
+    // Function to terminate the contract and transfer remaining funds to the company owner
+    function terminateContract() external onlyCompanyOwner {
+
+        address payable receipient = payable(companyAcc);
+        receipient.transfer(companyBal);
+
+        companyBal = 0;
+
+         selfdestruct(payable(companyAcc));
+    }
 
     function getEmployees() external view returns (Employee[] memory) {
         return employees;
     }
-
-    // TODO: Add an internal function to securely send money to an employee, preventing reentrancy attacks
-
-    // TODO: Add a helper function to get an employee's index by their address
-
-    // TODO: Optionally, add a function to terminate the contract and transfer remaining funds to the company owner
 }
